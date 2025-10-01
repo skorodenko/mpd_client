@@ -1,8 +1,5 @@
 //! The client implementation.
 
-mod runtime;
-mod controller;
-
 use core::result::Result;
 use std::{
     fmt,
@@ -33,101 +30,47 @@ use crate::{
 
 type CommandResponder = oneshot::Sender<Result<RawResponse, CommandError>>;
 
-#[derive(Clone)]
-pub struct Controller {
+#[derive(Clone, Default)]
+pub struct ClientController {
     commands_sender: Option<UnboundedSender<(RawCommandList, CommandResponder)>>,
-}
-
-#[derive(Clone)]
-pub struct Idler {
-    commands_sender: Option<UnboundedReceiver<(RawCommandList, CommandResponder)>>,
-}
-
-#[derive(Clone)]
-pub struct Client<Type> {
-    core: Type,
     protocol_version: Arc<str>,
 }
 
-impl Client {
-    /// Connect to the MPD server using the given connection.
-    ///
-    /// Commonly used with [TCP connections](tokio::net::TcpStream) or [Unix
-    /// sockets](tokio::net::UnixStream).
-    ///
-    /// # Panics
-    ///
-    /// Since this spawns a task internally, this will panic when called outside a Tokio runtime.
-    ///
-    /// # Errors
-    ///
-    /// This will return an error if sending the initial commands over the given transport fails.
-    pub async fn connect<C>(connection: C) -> Result<Connection, MpdProtocolError>
+impl ClientController {
+    pub async fn connect<C>(&self, connection: C) -> Result<Self, MpdProtocolError>
     where
         C: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
-        do_connect(connection, None).await.map_err(|e| match e {
-            ConnectWithPasswordError::ProtocolError(e) => e,
-            ConnectWithPasswordError::IncorrectPassword => unreachable!(),
-        })
+        self.do_connect(connection, None)
+            .await
+            .map_err(|e| match e {
+                ConnectWithPasswordError::ProtocolError(e) => e,
+                ConnectWithPasswordError::IncorrectPassword => unreachable!(),
+            })
     }
 
-    /// Connect to the password-protected MPD server using the given connection and password.
-    ///
-    /// Commonly used with [TCP connections](tokio::net::TcpStream) or [Unix
-    /// sockets](tokio::net::UnixStream).
-    ///
-    /// # Panics
-    ///
-    /// Since this spawns a task internally, this will panic when called outside a Tokio runtime.
-    ///
-    /// # Errors
-    ///
-    /// This will return an error if sending the initial commands over the given transport fails,
-    /// or if the password is incorrect.
     pub async fn connect_with_password<C>(
+        &self,
         connection: C,
         password: &str,
-    ) -> Result<Connection, ConnectWithPasswordError>
+    ) -> Result<Self, ConnectWithPasswordError>
     where
         C: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
-        do_connect(connection, Some(password)).await
+        self.do_connect(connection, Some(password)).await
     }
 
-    /// Connect to the possibly password-protected MPD server using the given connection and password.
-    ///
-    /// Commonly used with [TCP connections](tokio::net::TcpStream) or [Unix
-    /// sockets](tokio::net::UnixStream).
-    ///
-    /// # Panics
-    ///
-    /// Since this spawns a task internally, this will panic when called outside a Tokio runtime.
-    ///
-    /// # Errors
-    ///
-    /// This will return an error if sending the initial commands over the given transport fails,
-    /// or if the password is incorrect.
     pub async fn connect_with_password_opt<C>(
+        &self,
         connection: C,
         password: Option<&str>,
-    ) -> Result<Connection, ConnectWithPasswordError>
+    ) -> Result<Self, ConnectWithPasswordError>
     where
         C: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
-        do_connect(connection, password).await
+        self.do_connect(connection, password).await
     }
 
-    /// Send a [command].
-    ///
-    /// This will automatically parse the response to a proper type.
-    ///
-    /// # Errors
-    ///
-    /// This returns errors in the same conditions as [`Client::raw_command`], and additionally if the
-    /// response fails to convert to the expected type.
-    ///
-    /// [command]: super::commands
     pub async fn command<C>(&self, cmd: C) -> Result<C::Response, CommandError>
     where
         C: Command,
@@ -138,12 +81,6 @@ impl Client {
         Ok(response)
     }
 
-    /// Send the given command list, and return the (typed) responses.
-    ///
-    /// # Errors
-    ///
-    /// This returns errors in the same conditions as [`Client::raw_command_list`], and
-    /// additionally if the response type conversion fails.
     pub async fn command_list<L>(&self, list: L) -> Result<L::Response, CommandError>
     where
         L: CommandList,
@@ -156,12 +93,6 @@ impl Client {
         list.responses(frames).map_err(Into::into)
     }
 
-    /// Send the given command, and return the response to it.
-    ///
-    /// # Errors
-    ///
-    /// This will return an error if the connection to MPD is closed (cleanly) or a protocol error
-    /// occurs (including IO errors), or if the command results in an MPD error.
     pub async fn raw_command(&self, command: RawCommand) -> Result<Frame, CommandError> {
         self.do_send(RawCommandList::new(command))
             .await?
@@ -172,17 +103,6 @@ impl Client {
             })
     }
 
-    /// Send the given command list, and return the raw response frames to the contained commands.
-    ///
-    /// # Errors
-    ///
-    /// Errors will be returned in the same conditions as with [`Client::raw_command`], but if
-    /// *any* of the commands in the list return an error condition, the entire list will be
-    /// treated as an error.
-    ///
-    /// You may recover possible successful fields in a response from the [error].
-    ///
-    /// [error]: CommandError::ErrorResponse
     pub async fn raw_command_list(
         &self,
         commands: RawCommandList,
@@ -207,29 +127,7 @@ impl Client {
         Ok(frames)
     }
 
-    /// Load album art for the given URI.
-    ///
-    /// # Behavior
-    ///
-    /// This first tries to use the [`readpicture`][cmds::AlbumArtEmbedded] command to load
-    /// embedded data, before falling back to reading from a separate file using the
-    /// [`albumart`](cmds::AlbumArt) command.
-    ///
-    /// **Note**: Due to the default binary size limit of MPD being quite low, loading larger art
-    /// will issue many commands and can be slow. Consider increasing the
-    /// [binary size limit][cmds::SetBinaryLimit].
-    ///
-    /// # Return value
-    ///
-    /// If this method returns successfully, a return value of  `None` indicates that no album art
-    /// for the given URI was found. Otherwise, you will get a tuple consisting of the raw binary
-    /// data, and an optional string value that contains a MIME type for the data, if one was
-    /// provided by the server.
-    ///
-    /// # Errors
-    ///
-    /// This returns errors in the same conditions as [`Client::command`].
-    #[tracing::instrument(skip(self))]
+    //#[tracing::instrument(skip(self))]
     pub async fn album_art(
         &self,
         uri: &str,
@@ -305,17 +203,91 @@ impl Client {
     /// Returns `true` if the connection to the server has been closed (by the server or due to an
     /// error).
     pub fn is_connection_closed(&self) -> bool {
-        self.commands_sender.is_closed()
+        self.commands_sender.as_ref().unwrap().is_closed()
     }
 
     async fn do_send(&self, commands: RawCommandList) -> Result<RawResponse, CommandError> {
         let (tx, rx) = oneshot::channel();
 
         self.commands_sender
+            .as_ref()
+            .unwrap()
             .send((commands, tx))
             .map_err(|_| CommandError::ConnectionClosed)?;
 
         rx.await.map_err(|_| CommandError::ConnectionClosed)?
+    }
+
+    async fn do_connect<IO: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
+        &self,
+        io: IO,
+        password: Option<&str>,
+    ) -> Result<ClientController, ConnectWithPasswordError> {
+        let span = span!(Level::DEBUG, "client connection");
+
+        let (state_changes_sender, state_changes) = unbounded_channel();
+        let (commands_sender, commands_receiver) = unbounded_channel();
+
+        let mut connection = match AsyncConnection::connect(io).instrument(span.clone()).await {
+            Ok(c) => c,
+            Err(e) => {
+                error!(error = ?e, "failed to perform initial handshake");
+                return Err(e.into());
+            }
+        };
+
+        let protocol_version = Arc::from(connection.protocol_version());
+
+        if let Some(password) = password {
+            trace!(parent: &span, "sending password");
+
+            if let Err(e) = connection
+                .send(RawCommand::new("password").argument(password.to_owned()))
+                .instrument(span.clone())
+                .await
+            {
+                error!(parent: &span, error = ?e, "failed to send password");
+                return Err(e.into());
+            }
+
+            match connection.receive().instrument(span.clone()).await {
+                Err(e) => {
+                    error!(parent: &span, error = ?e, "failed to receive reply to password");
+                    return Err(e.into());
+                }
+                Ok(None) => {
+                    error!(
+                        parent: &span,
+                        "unexpected end of stream after sending password"
+                    );
+                    return Err(MpdProtocolError::Io(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "connection closed while waiting for reply to password",
+                    ))
+                    .into());
+                }
+                Ok(Some(response)) if response.is_error() => {
+                    error!(parent: &span, "incorrect password");
+                    return Err(ConnectWithPasswordError::IncorrectPassword);
+                }
+                Ok(Some(_)) => {
+                    trace!(parent: &span, "password accepted");
+                }
+            }
+        }
+
+        tokio::spawn(
+            connection::run_loop(connection, commands_receiver, state_changes_sender)
+                .instrument(span!(parent: &span, Level::TRACE, "run loop")),
+        );
+
+        let state_changes = ConnectionEvents(state_changes);
+        let client = ClientController {
+            commands_sender,
+            protocol_version,
+        };
+
+        Ok((client, state_changes))
     }
 }
 
@@ -325,78 +297,6 @@ impl fmt::Debug for Client {
             .field("protocol_version", &self.protocol_version)
             .finish_non_exhaustive()
     }
-}
-
-/// Perform the initial handshake to the server.
-async fn do_connect<IO: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
-    io: IO,
-    password: Option<&str>,
-) -> Result<Connection, ConnectWithPasswordError> {
-    let span = span!(Level::DEBUG, "client connection");
-
-    let (state_changes_sender, state_changes) = unbounded_channel();
-    let (commands_sender, commands_receiver) = unbounded_channel();
-
-    let mut connection = match AsyncConnection::connect(io).instrument(span.clone()).await {
-        Ok(c) => c,
-        Err(e) => {
-            error!(error = ?e, "failed to perform initial handshake");
-            return Err(e.into());
-        }
-    };
-
-    let protocol_version = Arc::from(connection.protocol_version());
-
-    if let Some(password) = password {
-        trace!(parent: &span, "sending password");
-
-        if let Err(e) = connection
-            .send(RawCommand::new("password").argument(password.to_owned()))
-            .instrument(span.clone())
-            .await
-        {
-            error!(parent: &span, error = ?e, "failed to send password");
-            return Err(e.into());
-        }
-
-        match connection.receive().instrument(span.clone()).await {
-            Err(e) => {
-                error!(parent: &span, error = ?e, "failed to receive reply to password");
-                return Err(e.into());
-            }
-            Ok(None) => {
-                error!(
-                    parent: &span,
-                    "unexpected end of stream after sending password"
-                );
-                return Err(MpdProtocolError::Io(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "connection closed while waiting for reply to password",
-                ))
-                .into());
-            }
-            Ok(Some(response)) if response.is_error() => {
-                error!(parent: &span, "incorrect password");
-                return Err(ConnectWithPasswordError::IncorrectPassword);
-            }
-            Ok(Some(_)) => {
-                trace!(parent: &span, "password accepted");
-            }
-        }
-    }
-
-    tokio::spawn(
-        connection::run_loop(connection, commands_receiver, state_changes_sender)
-            .instrument(span!(parent: &span, Level::TRACE, "run loop")),
-    );
-
-    let state_changes = ConnectionEvents(state_changes);
-    let client = Client {
-        commands_sender,
-        protocol_version,
-    };
-
-    Ok((client, state_changes))
 }
 
 /// Errors which can occur when issuing a command.
