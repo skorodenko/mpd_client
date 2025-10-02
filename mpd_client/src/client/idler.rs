@@ -8,7 +8,7 @@ use tokio::{
     io::{AsyncRead, AsyncWrite},
     sync::mpsc::{UnboundedReceiver, unbounded_channel},
 };
-use tracing::{Instrument, Level, span, error, trace};
+use tracing::{Instrument, Level, error, span, trace};
 
 use super::{ConnectWithPasswordError, ConnectionEvent, runtime};
 
@@ -19,11 +19,11 @@ pub struct ClientIdler {
 }
 
 impl ClientIdler {
-    pub async fn connect<C>(&self, connection: C) -> Result<Self, MpdProtocolError>
+    pub async fn connect<C>(connection: C) -> Result<Self, MpdProtocolError>
     where
         C: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
-        self.do_connect(connection, None)
+        Self::do_connect(connection, None)
             .await
             .map_err(|e| match e {
                 ConnectWithPasswordError::ProtocolError(e) => e,
@@ -32,25 +32,23 @@ impl ClientIdler {
     }
 
     pub async fn connect_with_password<C>(
-        &self,
         connection: C,
         password: &str,
     ) -> Result<Self, ConnectWithPasswordError>
     where
         C: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
-        self.do_connect(connection, Some(password)).await
+        Self::do_connect(connection, Some(password)).await
     }
 
     pub async fn connect_with_password_opt<C>(
-        &self,
         connection: C,
         password: Option<&str>,
     ) -> Result<Self, ConnectWithPasswordError>
     where
         C: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
-        self.do_connect(connection, password).await
+        Self::do_connect(connection, password).await
     }
 
     /// Get the protocol version the underlying connection is using.
@@ -65,7 +63,6 @@ impl ClientIdler {
     }
 
     async fn do_connect<IO: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
-        &self,
         io: IO,
         password: Option<&str>,
     ) -> Result<ClientIdler, ConnectWithPasswordError> {
