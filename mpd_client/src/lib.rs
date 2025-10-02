@@ -31,4 +31,4 @@ pub mod tag;
 
 pub use mpd_protocol as protocol;
 
-pub use self::client::Client;
+pub use self::client::{ClientController, ClientIdler};

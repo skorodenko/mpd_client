@@ -14,7 +14,7 @@ use super::{ConnectWithPasswordError, ConnectionEvent, runtime};
 
 #[derive(Default)]
 pub struct ClientIdler {
-    state_changes: Option<UnboundedReceiver<ConnectionEvent>>,
+    pub state_changes: Option<UnboundedReceiver<ConnectionEvent>>,
     protocol_version: Arc<str>,
 }
 
