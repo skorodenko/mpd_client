@@ -12,9 +12,8 @@ use tracing::{Instrument, Level, error, span, trace};
 
 use super::{ConnectWithPasswordError, ConnectionEvent, runtime};
 
-#[derive(Default)]
 pub struct ClientIdler {
-    pub state_changes: Option<UnboundedReceiver<ConnectionEvent>>,
+    pub state_changes: UnboundedReceiver<ConnectionEvent>,
     protocol_version: Arc<str>,
 }
 
@@ -51,6 +50,10 @@ impl ClientIdler {
         Self::do_connect(connection, password).await
     }
 
+    pub async fn next(&mut self) -> Option<ConnectionEvent> {
+        self.state_changes.recv().await
+    }
+
     /// Get the protocol version the underlying connection is using.
     pub fn protocol_version(&self) -> &str {
         self.protocol_version.as_ref()
@@ -59,7 +62,7 @@ impl ClientIdler {
     /// Returns `true` if the connection to the server has been closed (by the server or due to an
     /// error).
     pub fn is_connection_closed(&self) -> bool {
-        self.state_changes.as_ref().unwrap().is_closed()
+        self.state_changes.is_closed()
     }
 
     async fn do_connect<IO: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
@@ -124,7 +127,7 @@ impl ClientIdler {
         );
 
         let client = ClientIdler {
-            state_changes: Some(state_changes),
+            state_changes,
             protocol_version,
         };
 

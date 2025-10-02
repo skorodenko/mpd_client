@@ -22,9 +22,9 @@ use super::{CommandError, CommandResponder, ConnectWithPasswordError, runtime};
 
 use crate::commands::{self as cmds, Command, CommandList};
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct ClientController {
-    commands_sender: Option<UnboundedSender<(RawCommandList, CommandResponder)>>,
+    commands_sender: UnboundedSender<(RawCommandList, CommandResponder)>,
     protocol_version: Arc<str>,
 }
 
@@ -193,15 +193,13 @@ impl ClientController {
     /// Returns `true` if the connection to the server has been closed (by the server or due to an
     /// error).
     pub fn is_connection_closed(&self) -> bool {
-        self.commands_sender.as_ref().unwrap().is_closed()
+        self.commands_sender.is_closed()
     }
 
     async fn do_send(&self, commands: RawCommandList) -> Result<RawResponse, CommandError> {
         let (tx, rx) = oneshot::channel();
 
         self.commands_sender
-            .as_ref()
-            .unwrap()
             .send((commands, tx))
             .map_err(|_| CommandError::ConnectionClosed)?;
 
@@ -270,7 +268,7 @@ impl ClientController {
         );
 
         let client = ClientController {
-            commands_sender: Some(commands_sender),
+            commands_sender,
             protocol_version,
         };
 
