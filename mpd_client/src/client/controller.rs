@@ -22,6 +22,7 @@ use super::{CommandError, CommandResponder, ConnectWithPasswordError, runtime};
 
 use crate::commands::{self as cmds, Command, CommandList};
 
+/// Command sender for mpd_client
 #[derive(Clone)]
 pub struct ClientController {
     commands_sender: UnboundedSender<(RawCommandList, CommandResponder)>,
@@ -29,6 +30,7 @@ pub struct ClientController {
 }
 
 impl ClientController {
+    /// Connect client to server
     pub async fn connect<C>(connection: C) -> Result<Self, MpdProtocolError>
     where
         C: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -41,6 +43,7 @@ impl ClientController {
             })
     }
 
+    /// Connect client to server with password
     pub async fn connect_with_password<C>(
         connection: C,
         password: &str,
@@ -51,6 +54,7 @@ impl ClientController {
         Self::do_connect(connection, Some(password)).await
     }
 
+    /// Connect client to server with password opt
     pub async fn connect_with_password_opt<C>(
         connection: C,
         password: Option<&str>,
@@ -61,6 +65,7 @@ impl ClientController {
         Self::do_connect(connection, password).await
     }
 
+    /// Send command to server
     pub async fn command<C>(&self, cmd: C) -> Result<C::Response, CommandError>
     where
         C: Command,
@@ -71,6 +76,7 @@ impl ClientController {
         Ok(response)
     }
 
+    /// Send command list to server
     pub async fn command_list<L>(&self, list: L) -> Result<L::Response, CommandError>
     where
         L: CommandList,
@@ -83,6 +89,7 @@ impl ClientController {
         list.responses(frames).map_err(Into::into)
     }
 
+    /// Send raw command to server
     pub async fn raw_command(&self, command: RawCommand) -> Result<Frame, CommandError> {
         self.do_send(RawCommandList::new(command))
             .await?
@@ -93,6 +100,7 @@ impl ClientController {
             })
     }
 
+    /// Send raw command list to server
     pub async fn raw_command_list(
         &self,
         commands: RawCommandList,
@@ -117,6 +125,7 @@ impl ClientController {
         Ok(frames)
     }
 
+    /// Get album art for uri
     //#[tracing::instrument(skip(self))]
     pub async fn album_art(
         &self,

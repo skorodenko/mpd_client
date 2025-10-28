@@ -12,12 +12,15 @@ use tracing::{Instrument, Level, error, span, trace};
 
 use super::{ConnectWithPasswordError, ConnectionEvent, runtime};
 
+/// Idle reciever
 pub struct ClientIdler {
+    /// Reciever
     pub state_changes: UnboundedReceiver<ConnectionEvent>,
     protocol_version: Arc<str>,
 }
 
 impl ClientIdler {
+    /// Connect client to server
     pub async fn connect<C>(connection: C) -> Result<Self, MpdProtocolError>
     where
         C: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -30,6 +33,7 @@ impl ClientIdler {
             })
     }
 
+    /// Connect client to server with password
     pub async fn connect_with_password<C>(
         connection: C,
         password: &str,
@@ -40,6 +44,7 @@ impl ClientIdler {
         Self::do_connect(connection, Some(password)).await
     }
 
+    /// Send command to server
     pub async fn connect_with_password_opt<C>(
         connection: C,
         password: Option<&str>,
@@ -50,6 +55,7 @@ impl ClientIdler {
         Self::do_connect(connection, password).await
     }
 
+    /// Next idle command
     pub async fn next(&mut self) -> Option<ConnectionEvent> {
         self.state_changes.recv().await
     }

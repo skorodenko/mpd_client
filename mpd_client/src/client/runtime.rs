@@ -43,10 +43,6 @@ fn idle() -> RawCommand {
     RawCommand::new("idle")
 }
 
-fn cancel_idle() -> RawCommand {
-    RawCommand::new("noidle")
-}
-
 pub(super) async fn run_control_loop<C>(
     connection: AsyncConnection<C>,
     commands: UnboundedReceiver<(RawCommandList, CommandResponder)>,
@@ -109,7 +105,7 @@ where
     match state.loop_state {
         ControlLoopState::WaitingForCommand => {
             let next_command = state.commands.recv().await;
-            handle_command(&mut state, next_command).await;
+            let _ = handle_command(&mut state, next_command).await;
         }
         ControlLoopState::WaitingForCommandReply(responder) => {
             let response = state.connection.receive().await.transpose().ok_or(())?;

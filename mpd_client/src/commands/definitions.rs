@@ -1224,6 +1224,42 @@ impl Command for ListAllIn<'_> {
     }
 }
 
+/// `listfiles` command.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ListDirs<'a> {
+    directory: &'a str,
+}
+
+impl<'a> ListDirs<'a> {
+    /// List all songs in the library.
+    pub fn root() -> ListDirs<'static> {
+        ListDirs { directory: "" }
+    }
+
+    /// List all songs beneath the given directory.
+    pub fn directory(directory: &'a str) -> ListDirs<'a> {
+        ListDirs { directory }
+    }
+}
+
+impl Command for ListDirs<'_> {
+    type Response = Vec<String>;
+
+    fn command(&self) -> RawCommand {
+        let mut command = RawCommand::new("listall");
+
+        if !self.directory.is_empty() {
+            command.add_argument(self.directory).unwrap();
+        }
+
+        command
+    }
+
+    fn response(self, frame: Frame) -> Result<Self::Response, TypedResponseError> {
+        res::ListDirs::from_frame_multi(frame)
+    }
+}
+
 /// Set the response binary length limit, in bytes.
 ///
 /// This can dramatically speed up operations like [loading album art][crate::Client::album_art],
