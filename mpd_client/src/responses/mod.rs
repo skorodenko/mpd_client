@@ -15,7 +15,7 @@ use mpd_protocol::response::Frame;
 
 pub use self::{
     count::Count,
-    info::ListDirs,
+    info::{ListDirs, Output},
     list::{GroupedListValuesIter, List, ListValuesIntoIter, ListValuesIter},
     playlist::Playlist,
     song::{Song, SongInQueue, SongRange},

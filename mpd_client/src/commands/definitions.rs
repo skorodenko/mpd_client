@@ -1260,6 +1260,22 @@ impl Command for ListDirs<'_> {
     }
 }
 
+/// `outputs` command.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ListOutputs;
+
+impl Command for ListOutputs {
+    type Response = Vec<res::Output>;
+
+    fn command(&self) -> RawCommand {
+        RawCommand::new("outputs")
+    }
+
+    fn response(self, frame: Frame) -> Result<Self::Response, TypedResponseError> {
+        res::Output::from_frame_multi(frame)
+    }
+}
+
 /// Set the response binary length limit, in bytes.
 ///
 /// This can dramatically speed up operations like [loading album art][crate::Client::album_art],
