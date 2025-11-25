@@ -194,6 +194,47 @@ impl ClientController {
         Ok(Some((out, mime)))
     }
 
+    /// Get first chunk of album art for uri
+    //#[tracing::instrument(skip(self))]
+    pub async fn album_art_signature(
+        &self,
+        uri: &str,
+    ) -> Result<Option<BytesMut>, CommandError> {
+        debug!("loading album art");
+
+        let mut out = BytesMut::new();
+        let mut embedded = false;
+
+        // Try loadding embedded album art first
+        match self.command(cmds::AlbumArtEmbedded::new(uri)).await {
+            Ok(Some(resp)) => {
+                out = resp.data;
+                embedded = true;
+                debug!(length = resp.size, "found embedded album art");
+            }
+            Ok(None) => {
+                debug!("readpicture command gave no result, falling back");
+            }
+            Err(e) => match e {
+                CommandError::ErrorResponse { error, .. } if error.code == 5 => {
+                    debug!("readpicture command unsupported, falling back");
+                }
+                e => return Err(e),
+            },
+        }
+
+        if !embedded {
+            if let Some(resp) = self.command(cmds::AlbumArt::new(uri)).await? {
+                out = resp.data;
+            } else {
+                debug!("no embedded or separate album art found");
+                return Ok(None);
+            }
+        }
+
+        Ok(Some(out))
+    }
+
     /// Get the protocol version the underlying connection is using.
     pub fn protocol_version(&self) -> &str {
         self.protocol_version.as_ref()
