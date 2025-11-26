@@ -3,7 +3,7 @@
 use core::result::Result;
 use std::{fmt, io, sync::Arc};
 
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use mpd_protocol::{
     AsyncConnection, MpdProtocolError,
     command::{Command as RawCommand, CommandList as RawCommandList},
@@ -199,7 +199,7 @@ impl ClientController {
     pub async fn album_art_signature(
         &self,
         uri: &str,
-    ) -> Result<Option<BytesMut>, CommandError> {
+    ) -> Result<Option<Bytes>, CommandError> {
         debug!("loading album art");
 
         let mut out = BytesMut::new();
@@ -232,7 +232,7 @@ impl ClientController {
             }
         }
 
-        Ok(Some(out))
+        Ok(Some(out.freeze()))
     }
 
     /// Get the protocol version the underlying connection is using.
